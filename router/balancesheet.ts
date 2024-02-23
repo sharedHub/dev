@@ -1,5 +1,5 @@
 import { Router } from "express";
-import {CreateAccount, CreateUser, addSubData, deletBalaceSheet, deleteAccountDetail, getAccountDetailsById, getBalanceSheet, getBankDetails, getParents, getSelectedAccountData, getdetails, login, updateAccount} from "../controller/balanceSheet";
+import {CreateAccount, CreateUser, addSeiveMaster, addShape, addStoneColor, addSubData, deletBalaceSheet, deleteAccountDetail, deleteBankObject, getAccountDetailsById, getBalanceSheet, getBankDetails, getParents, getSeiveMasterdetails, getSelectedAccountData, getStoneColor, getStoneShape, getdetails, login, updateAccount} from "../controller/balanceSheet";
 import { jwtAuth, VerifyJwt } from "../middelware/auth";
 
 // import { signinMiddleware } from "../middlewares/signin";
@@ -19,5 +19,13 @@ router.put("/updateAccountDetails",updateAccount)
 router.get("/getAccountDetailById/:id",getAccountDetailsById)
 router.get("/getbankDetails",getBankDetails)
 router.post("/deletBalanceSheet",deletBalaceSheet)
+router.post("/deleteBankObject",deleteBankObject)
+router.post("/addSeiveMaster",addSeiveMaster)
+router.get("/getSieveDetails",getSeiveMasterdetails)
+router.post("/addStone",addShape)
+router.get("/getStone",getStoneShape)
+router.post("/addStoneColor",addStoneColor)
+router.get("/getStoneColor",getStoneColor)
+
 
 export default router;

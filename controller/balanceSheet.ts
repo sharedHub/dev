@@ -5,6 +5,8 @@ import bcrypt from "bcrypt";
 import { comparePasswords, jwtAuth } from "../middelware/auth";
 import { hashPassword } from "../middelware/auth"
 import { executeUpdateBank, executeUpdateQuery, executeInsertQuery } from "../query/insertQuery";
+import { Client } from "pg";
+import { cli } from "winston/lib/winston/config";
 // import { executeUpdateQuery } from "../query/insertQuery";
 
 interface balance_sheet {
@@ -16,7 +18,15 @@ interface balance_sheet {
 export const getBalanceSheet = async (req: Request, res: Response) => {
     const client = await pool.connect();
     const data = await client.query('SELECT * FROM bsschedule')
-    res.json(data.rows)
+    if (data.rows.length > 0) {
+        res.status(200).json({
+            data: data.rows
+        })
+    }else{
+        res.status(204).json({
+            message: "data not found"
+        })
+    }
 }
 
 export const addSubData = async (req: Request, res: Response) => {
@@ -138,12 +148,35 @@ export const addSubData = async (req: Request, res: Response) => {
 
 export const deletBalaceSheet = async (req: Request, res: Response) => {
     const client = await pool.connect();
-    const data = await client.query("DELETE FROM bsschedule")
-    if (data.rowCount > 0) {
-        return res.status(204).send("Data deleted successfully");
-    } else {
-        return res.status(404).send("No data found to delete");
+    try {
+        const match = await client.query("select * from bsschedule")
+        let count: any = []
+        for (const item of match.rows) {
+            const querytext = "select * from accountmasterfile where account_ugroup = $1"
+            const values = [item.sch_code];
+            const result = await client.query(querytext, values);
+            if (result.rowCount > 0) {
+                count.push(item.sch_code)
+            }
+        }
+        if (count.length > 0) {
+            count.map(async (ele: any) => {
+                const data = await client.query("DELETE FROM bsschedule WHERE sch_code !=$1", [ele])
+                console.log(data.rows)
+            })
+            return res.status(204).send("Data deleted successfully and some are exist due to realtions with account section");
+        } else {
+            const data = await client.query("DELETE FROM bsschedule")
+            if (data.rowCount > 0) {
+                return res.status(204).send("Data deleted successfully");
+            }
+        }
     }
+    catch (error) {
+        console.error("Error deleting data:", error);
+        throw new Error("Internal server error");
+    }
+
 
 }
 
@@ -170,7 +203,8 @@ export const CreateAccount = async (req: Request, res: Response) => {
         const { [excludedField]: excludedFieldValue, ...filteredData } = data;
         const key = Object.keys(data).filter(key => key !== excludedField);
         const values = Object.values(filteredData);
-        const r = await executeInsertQuery(key,values);
+        const table = "accountmasterfile"
+        const r = await executeInsertQuery(table,key, values);
         const add = r
 
         if (data.bank.length != 0) {
@@ -186,6 +220,7 @@ export const CreateAccount = async (req: Request, res: Response) => {
              WHERE accountmasterfile.account_ugroup = $1`,
             [add[0].account_ugroup]
         );
+
 
         const prefix = f.rows[f.rows.length - 1]?.sch_code
 
@@ -225,6 +260,7 @@ export const CreateAccount = async (req: Request, res: Response) => {
 
             const update = await client.query(updateQuery, values);
 
+
             res.json({ message: "Data updated successfully", data: update.rows[update.rows.length - 1] });
         } else {
             const num = "01"
@@ -239,13 +275,14 @@ export const CreateAccount = async (req: Request, res: Response) => {
             const values = [code, add[0].account_id];
 
             const update = await client.query(updateQuery, values);
+
             res.json({ message: "Data added successfully", data: update.rows[update.rows.length - 1] });
         }
 
 
     } catch (error) {
         console.error("Error creating account:", error);
-        return res.status(500).json({ error: "Internal server error" });
+        return res.status(500).json({ error });
     }
 }
 
@@ -253,7 +290,7 @@ export const getdetails = async (req: Request, res: Response) => {
 
     const client = await pool.connect();
 
-    client.query(`SELECT account_id, account_description, account_email, account_phone, FROM accountmasterfile`)
+    client.query(`SELECT account_id, account_description, account_email, account_phone FROM accountmasterfile`)
         .then((data: any) => {
             const d = data.rows;
             return res.json(d)
@@ -261,7 +298,7 @@ export const getdetails = async (req: Request, res: Response) => {
         .catch((error: any) => {
             console.error('Error fetching data:', error);
         });
-
+    client.release()
 }
 
 export const getBankDetails = async (req: Request, res: Response) => {
@@ -294,7 +331,7 @@ export const getBankDetails = async (req: Request, res: Response) => {
         .catch((error: any) => {
             console.error('Error fetching data:', error);
         });
-
+    client.release()
 }
 
 export const getParents = async (req: Request, res: Response) => {
@@ -410,6 +447,7 @@ export const login = async (req: Request, res: Response) => {
     const data = req.body
 
     const find = await client.query(`select * from user_details where user_name = $1`, [data.user_name])
+
     if (find.rows.length > 0) {
         const passwordMatches = await comparePasswords(data.password, find.rows[0].user_password);
         if (passwordMatches) {
@@ -446,7 +484,7 @@ export const getSelectedAccountData = async (req: Request, res: Response) => {
     const client = await pool.connect();
 
     const data = await client.query(`select account_id, account_shortname, account_bgroup, account_ugroup, account_email, account_address, account_web, account_phone, account_country, account_description  from accountmasterfile`)
-
+    client.release()
     return res.status(200).json({
         data: data.rows,
         code: 200
@@ -458,15 +496,14 @@ export const deleteAccountDetail = async (req: Request, res: Response) => {
     const client = await pool.connect();
     try {
         const dataArray: number[] = req.body.dataArray;
-        console.log(dataArray)
         const deletionPromises = dataArray.map(async (element) => {
-            await client.query(`delete from accountmasterfile where account_id = $1`, [element])
-            // console.log(`${element} deleted!`)
+            await client.query(`delete from accountmasterfile where account_id = $1 `, [element])
+            await client.query(`DELETE FROM accountbanking
+            WHERE account_id = $1
+            RETURNING *;`, [element])
         });
         await Promise.all(deletionPromises);
-
-        // await client.query(`delete from account_details`)
-
+        client.release()
         res.status(200).json({ message: 'Account details deleted successfully.' });
     } catch (error) {
         // Handle any errors
@@ -478,14 +515,13 @@ export const deleteAccountDetail = async (req: Request, res: Response) => {
 export const updateAccount = async (req: Request, res: Response) => {
     try {
         const data = req.body
-
         const excludedFields = ['account_id', 'bank'];
         const filteredData = Object.keys(data)
             .filter((key: string) => !excludedFields.includes(key))
             .reduce((obj: any, key: string) => {
                 obj[key] = data[key];
                 return obj;
-        }, {});
+            }, {});
         // Extract field names and values from the filtered data object
         const fieldsToUpdate = Object.keys(filteredData);
         const values = Object.values(filteredData);
@@ -494,13 +530,154 @@ export const updateAccount = async (req: Request, res: Response) => {
         if (bankData) {
             const d = await executeUpdateBank(bankData, data.account_id);
             return res.json({ message: "data updated successfully", data: { r, d } })
-
         } else {
             return res.json({ message: "data updated successfully", data: r })
         }
 
     } catch (error) {
-        res.status(500).json({ error: 'Internal server error' });
+        // res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json(error)
     }
 }
 
+export const deleteBankObject = async (req: Request, res: Response) => {
+    const client = await pool.connect();
+    try {
+        const dataArray: number[] = req.body.dataArray;
+        const deletionPromises = dataArray.map(async (element) => {
+            await client.query(`delete from accountbanking where account_id = $1 `, [element])
+            client.release()
+        });
+        await Promise.all(deletionPromises);
+    } catch (err) {
+        return res.send(err)
+    }
+}
+
+export const addSeiveMaster = async(req: Request , res  : Response) =>{
+    try{
+        const data = req.body
+        const key = Object.keys(data)
+        const values = Object.values(data)
+        const table = "stonemaster"
+        const result = await executeInsertQuery(table,key,values)
+        return res.status(201).json({message : "data added ...", data : result})
+    }catch(err){
+        return err
+    }
+}
+
+export const getSeiveMasterdetails = async(req:Request, res:Response)=>{
+    const client = await pool.connect();
+    try{
+        const find = req.body
+        
+        if(find && Object.keys(find).includes(find.stone_id)){
+            const data = await client.query("select * from stonemaster where stone_id =$1",[find.stone_id])
+            if(data.rows.length  > 0){
+                return res.status(200).json({data : data.rows})
+            }else{
+                return res.status(204).json({message : "data not found"})
+            }
+        }else{
+            const data = await client.query("select * from stonemaster")
+            if(data.rows.length > 0){
+                return res.status(200).json({data : data.rows})
+            }else{
+                return res.status(301).json({message : "data not found"})
+            }
+        }
+       
+    }catch(err){
+        return err
+    }
+}
+
+
+
+export const addShape = async(req:Request, res:Response)=>{
+    
+    const data = req.body
+    try {
+        const table = "stoneshapefile"
+        const key =  Object.keys(data)
+        const values = Object.values(data)
+        const result = await executeInsertQuery(table,key,values)
+        if(result){
+            return res.status(200).json({data : result})
+        }else{
+            return res.status(301).json({message : "data not found"})
+        }
+
+    }catch(err){
+        return err
+    }
+}
+
+export const getStoneShape = async(req:Request, res:Response)=>{
+    const client = await pool.connect();
+    const find = req.body
+    try{
+        if(find && find.stn_serial){
+            const data = await client.query("select * from stoneshapefile where stn_serial =$1",[find.stn_serial])
+            if(data.rows.length > 0){
+                return res.status(200).json({data : data.rows})
+            }else{
+                return res.status(204).json({message : "data not found"})
+            }
+        }else{
+            const data = await client.query("select * from stoneshapefile")
+            if(data.rows.length > 0){
+                return res.status(200).json({data : data.rows})
+            }else{
+                return res.status(301).json({message : "data not found"})
+            }
+        }
+    }catch(err){
+        return err
+    }
+}
+
+
+export const addStoneColor= async(req:Request, res:Response)=>{
+    
+    const data = req.body
+    try {
+        const table = "stonecolorfile"
+        const key =  Object.keys(data)
+        const values = Object.values(data)
+        const result = await executeInsertQuery(table,key,values)
+        if(result){
+            return res.status(200).json({data : result})
+        }else{
+            return res.status(301).json({message : "data not found"})
+        }
+
+    }catch(err){
+        return err
+    }
+}
+
+export const getStoneColor = async(req:Request, res:Response)=>{
+    const client = await pool.connect();
+    const find = req.body
+    try{
+        if(find && find.stn_serial){
+            const data = await client.query("select * from stonecolorfile where stn_serial =$1",[find.stn_serial])
+            if(data.rows.length > 0){
+                return res.status(200).json({data : data.rows})
+            }else{
+                return res.status(301).json({message : "data not found"})
+            }
+        }else{
+            const data = await client.query("select * from stonecolorfile")
+            if(data.rows.length > 0){
+                return res.status(200).json({data : data.rows})
+            }else{
+                return res.status(301).json({message : "data not found"})
+            }
+        }
+    }catch(err){
+        return err
+    }
+}
