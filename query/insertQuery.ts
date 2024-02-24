@@ -11,7 +11,7 @@ export const executeInsertQuery = async (table : string , fieldsToInsert: string
         INSERT INTO ${table} (${fieldNames})
         VALUES (${placeholders})
         RETURNING *
-         `;
+        `;
         const result: QueryResult = await client.query(insertQuery, values);
         return result.rows;
     } catch (error) {

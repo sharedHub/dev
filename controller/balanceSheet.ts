@@ -22,8 +22,8 @@ export const getBalanceSheet = async (req: Request, res: Response) => {
         res.status(200).json({
             data: data.rows
         })
-    }else{
-        res.status(204).json({
+    } else {
+        res.status(301).json({
             message: "data not found"
         })
     }
@@ -133,7 +133,6 @@ export const addSubData = async (req: Request, res: Response) => {
                 } else {
                     const code: string = `${codePrefix}${intPrefix}${intSuffix}`;
                     await client.query('INSERT INTO bsschedule (sch_description, sch_code) VALUES ($1 , $2) RETURNING*', [title.toUpperCase(), code])
-
                     res.send(`${title} added to ${masterGroup} successfully`);
                 }
             }
@@ -174,7 +173,7 @@ export const deletBalaceSheet = async (req: Request, res: Response) => {
     }
     catch (error) {
         console.error("Error deleting data:", error);
-        throw new Error("Internal server error");
+        return res.send(error)
     }
 
 
@@ -204,7 +203,7 @@ export const CreateAccount = async (req: Request, res: Response) => {
         const key = Object.keys(data).filter(key => key !== excludedField);
         const values = Object.values(filteredData);
         const table = "accountmasterfile"
-        const r = await executeInsertQuery(table,key, values);
+        const r = await executeInsertQuery(table, key, values);
         const add = r
 
         if (data.bank.length != 0) {
@@ -297,8 +296,8 @@ export const getdetails = async (req: Request, res: Response) => {
         })
         .catch((error: any) => {
             console.error('Error fetching data:', error);
+            return res.send(error)
         });
-    client.release()
 }
 
 export const getBankDetails = async (req: Request, res: Response) => {
@@ -361,11 +360,94 @@ export const getParents = async (req: Request, res: Response) => {
                 }
             }
             res.send(a.flat())
-
         }
     }
 
 
+}
+
+
+export const getAllBss = async (req: Request, res: Response) => {
+    const client = await pool.connect();
+
+    const find = await client.query(`select * from bsschedule`)
+    let temp: any = []
+
+    for (let i = 0; i < find.rows.length; i++) {
+        if (typeof find.rows[i].sch_code === 'string' && typeof find.rows[i].sch_code[0] === 'string') {
+            // Assuming find.rows[i].sch_code is a string and not an array
+            if (find.rows[i].sch_code[0].match(new RegExp(find.rows[i].sch_code[0]))) {
+                temp.push(find.rows[i]);
+            }
+        }
+    }
+
+    temp.sort((a: any, b: any) => a.sch_code.length - b.sch_code.length);
+
+    const codeArrays: { [key: string]: any[] } = {};
+
+    temp.forEach((obj: any) => {
+        const codePrefix = obj.sch_code.charAt(0);
+        if (!codeArrays[codePrefix]) {
+            codeArrays[codePrefix] = [];
+        }
+        codeArrays[codePrefix].push(obj);
+    });
+
+
+    function sortBySchCode(a: any, b: any): number {
+        if (a.sch_code.length !== b.sch_code.length) {
+            return a.sch_code.length - b.sch_code.length;
+        }
+        const lastCharA = Number(a.sch_code.slice(-1));
+        const lastCharB = Number(b.sch_code.slice(-1));
+        return lastCharA - lastCharB;
+    }
+
+    // Sort each array within codeArrays
+    for (const key in codeArrays) {
+        codeArrays[key].sort(sortBySchCode);
+    }
+
+    let dict : any = {}
+
+    for (const key of Object.keys(codeArrays)) {
+        for (const item of codeArrays[key]) {
+            let b
+            b = item.sch_code
+            const l = b.length
+
+            for (let i = 2; i <= l; i += 2) {
+                const f: string = b.slice(0, l - i); // Reduce the size of f by 2 in each iteration
+
+                const parent = await client.query(`select * from bsschedule where sch_code = $1`, [f])
+                
+                b = f
+
+                if (parent.rows.length > 0) {
+                    const key = parent.rows[0].sch_code
+                    const child = await client.query(`select * from bsschedule where sch_code = $1`, [item.sch_code])
+                    if(child.rows.length > 0){
+                        if (!(key in dict)) {
+                            // If the key does not exist, create a new array with the value
+                            dict[key] = [child.rows[0]];
+                        }
+                        // Add the value to the array
+                        dict[key].push(child.rows[0]);
+                    }
+                    
+                }
+            }
+        }
+
+    }
+    const result = [];
+    for (let key in dict) {
+        if (dict.hasOwnProperty(key)) {
+            result.push({ key: key, value: dict[key] });
+        }
+    }
+    res.send(result)
 }
 
 export const getAccountDetailsById = async (req: Request, res: Response) => {
@@ -393,8 +475,8 @@ export const getAccountDetailsById = async (req: Request, res: Response) => {
             bank.push(f.rows)
             bank = bank.flat()
             if (!data.rows) {
-                return res.status(401).json({
-                    code: 401,
+                return res.status(301).json({
+                    code: 301,
                     message: "data not found",
                     status: false
                 })
@@ -405,8 +487,7 @@ export const getAccountDetailsById = async (req: Request, res: Response) => {
             }
         }
     } catch (err) {
-        console.log(err)
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ err });
     }
 
 }
@@ -484,7 +565,6 @@ export const getSelectedAccountData = async (req: Request, res: Response) => {
     const client = await pool.connect();
 
     const data = await client.query(`select account_id, account_shortname, account_bgroup, account_ugroup, account_email, account_address, account_web, account_phone, account_country, account_description  from accountmasterfile`)
-    client.release()
     return res.status(200).json({
         data: data.rows,
         code: 200
@@ -503,7 +583,6 @@ export const deleteAccountDetail = async (req: Request, res: Response) => {
             RETURNING *;`, [element])
         });
         await Promise.all(deletionPromises);
-        client.release()
         res.status(200).json({ message: 'Account details deleted successfully.' });
     } catch (error) {
         // Handle any errors
@@ -546,7 +625,6 @@ export const deleteBankObject = async (req: Request, res: Response) => {
         const dataArray: number[] = req.body.dataArray;
         const deletionPromises = dataArray.map(async (element) => {
             await client.query(`delete from accountbanking where account_id = $1 `, [element])
-            client.release()
         });
         await Promise.all(deletionPromises);
     } catch (err) {
@@ -554,130 +632,127 @@ export const deleteBankObject = async (req: Request, res: Response) => {
     }
 }
 
-export const addSeiveMaster = async(req: Request , res  : Response) =>{
-    try{
+export const addSeiveMaster = async (req: Request, res: Response) => {
+    try {
         const data = req.body
         const key = Object.keys(data)
         const values = Object.values(data)
         const table = "stonemaster"
-        const result = await executeInsertQuery(table,key,values)
-        return res.status(201).json({message : "data added ...", data : result})
-    }catch(err){
+        const result = await executeInsertQuery(table, key, values)
+        return res.status(201).json({ message: "data added ...", data: result })
+    } catch (err) {
         return err
     }
 }
 
-export const getSeiveMasterdetails = async(req:Request, res:Response)=>{
+export const getSeiveMasterdetails = async (req: Request, res: Response) => {
     const client = await pool.connect();
-    try{
+    try {
         const find = req.body
-        
-        if(find && Object.keys(find).includes(find.stone_id)){
-            const data = await client.query("select * from stonemaster where stone_id =$1",[find.stone_id])
-            if(data.rows.length  > 0){
-                return res.status(200).json({data : data.rows})
-            }else{
-                return res.status(204).json({message : "data not found"})
+
+        if (find && Object.keys(find).includes(find.stone_id)) {
+            const data = await client.query("select * from stonemaster where stone_id =$1", [find.stone_id])
+            if (data.rows.length > 0) {
+                return res.status(200).json({ data: data.rows })
+            } else {
+                return res.status(301).json({ message: "data not found" })
             }
-        }else{
+        } else {
             const data = await client.query("select * from stonemaster")
-            if(data.rows.length > 0){
-                return res.status(200).json({data : data.rows})
-            }else{
-                return res.status(301).json({message : "data not found"})
+            if (data.rows.length > 0) {
+                return res.status(200).json({ data: data.rows })
+            } else {
+                return res.status(301).json({ message: "data not found" })
             }
         }
-       
-    }catch(err){
+
+    } catch (err) {
         return err
     }
 }
 
+export const addShape = async (req: Request, res: Response) => {
 
-
-export const addShape = async(req:Request, res:Response)=>{
-    
     const data = req.body
     try {
         const table = "stoneshapefile"
-        const key =  Object.keys(data)
+        const key = Object.keys(data)
         const values = Object.values(data)
-        const result = await executeInsertQuery(table,key,values)
-        if(result){
-            return res.status(200).json({data : result})
-        }else{
-            return res.status(301).json({message : "data not found"})
+        const result = await executeInsertQuery(table, key, values)
+        if (result) {
+            return res.status(200).json({ data: result })
+        } else {
+            return res.status(301).json({ message: "data not found" })
         }
 
-    }catch(err){
+    } catch (err) {
         return err
     }
 }
 
-export const getStoneShape = async(req:Request, res:Response)=>{
+export const getStoneShape = async (req: Request, res: Response) => {
     const client = await pool.connect();
     const find = req.body
-    try{
-        if(find && find.stn_serial){
-            const data = await client.query("select * from stoneshapefile where stn_serial =$1",[find.stn_serial])
-            if(data.rows.length > 0){
-                return res.status(200).json({data : data.rows})
-            }else{
-                return res.status(204).json({message : "data not found"})
+    try {
+        if (find && find.stn_serial) {
+            const data = await client.query("select * from stoneshapefile where stn_serial =$1", [find.stn_serial])
+            if (data.rows.length > 0) {
+                return res.status(200).json({ data: data.rows })
+            } else {
+                return res.status(301).json({ message: "data not found" })
             }
-        }else{
+        } else {
             const data = await client.query("select * from stoneshapefile")
-            if(data.rows.length > 0){
-                return res.status(200).json({data : data.rows})
-            }else{
-                return res.status(301).json({message : "data not found"})
+            if (data.rows.length > 0) {
+                return res.status(200).json({ data: data.rows })
+            } else {
+                return res.status(301).json({ message: "data not found" })
             }
         }
-    }catch(err){
+    } catch (err) {
         return err
     }
 }
 
+export const addStoneColor = async (req: Request, res: Response) => {
 
-export const addStoneColor= async(req:Request, res:Response)=>{
-    
     const data = req.body
     try {
         const table = "stonecolorfile"
-        const key =  Object.keys(data)
+        const key = Object.keys(data)
         const values = Object.values(data)
-        const result = await executeInsertQuery(table,key,values)
-        if(result){
-            return res.status(200).json({data : result})
-        }else{
-            return res.status(301).json({message : "data not found"})
+        const result = await executeInsertQuery(table, key, values)
+        if (result) {
+            return res.status(200).json({ data: result })
+        } else {
+            return res.status(301).json({ message: "data not found" })
         }
 
-    }catch(err){
+    } catch (err) {
         return err
     }
 }
 
-export const getStoneColor = async(req:Request, res:Response)=>{
+export const getStoneColor = async (req: Request, res: Response) => {
     const client = await pool.connect();
     const find = req.body
-    try{
-        if(find && find.stn_serial){
-            const data = await client.query("select * from stonecolorfile where stn_serial =$1",[find.stn_serial])
-            if(data.rows.length > 0){
-                return res.status(200).json({data : data.rows})
-            }else{
-                return res.status(301).json({message : "data not found"})
+    try {
+        if (find && find.stn_serial) {
+            const data = await client.query("select * from stonecolorfile where stn_serial =$1", [find.stn_serial])
+            if (data.rows.length > 0) {
+                return res.status(200).json({ data: data.rows })
+            } else {
+                return res.status(301).json({ message: "data not found" })
             }
-        }else{
+        } else {
             const data = await client.query("select * from stonecolorfile")
-            if(data.rows.length > 0){
-                return res.status(200).json({data : data.rows})
-            }else{
-                return res.status(301).json({message : "data not found"})
+            if (data.rows.length > 0) {
+                return res.status(200).json({ data: data.rows })
+            } else {
+                return res.status(301).json({ message: "data not found" })
             }
         }
-    }catch(err){
+    } catch (err) {
         return err
     }
 }
