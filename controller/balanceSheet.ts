@@ -366,88 +366,150 @@ export const getParents = async (req: Request, res: Response) => {
 
 }
 
-
 export const getAllBss = async (req: Request, res: Response) => {
     const client = await pool.connect();
 
     const find = await client.query(`select * from bsschedule`)
-    let temp: any = []
 
-    for (let i = 0; i < find.rows.length; i++) {
-        if (typeof find.rows[i].sch_code === 'string' && typeof find.rows[i].sch_code[0] === 'string') {
-            // Assuming find.rows[i].sch_code is a string and not an array
-            if (find.rows[i].sch_code[0].match(new RegExp(find.rows[i].sch_code[0]))) {
-                temp.push(find.rows[i]);
-            }
-        }
-    }
+    // let temp: any = []
 
-    temp.sort((a: any, b: any) => a.sch_code.length - b.sch_code.length);
+    // for (let i = 0; i < find.rows.length; i++) {
+    //     if (typeof find.rows[i].sch_code === 'string' && typeof find.rows[i].sch_code[0] === 'string') {
+    //         // Assuming find.rows[i].sch_code is a string and not an array
+    //         if (find.rows[i].sch_code[0].match(new RegExp(find.rows[i].sch_code[0]))) {
+    //             temp.push(find.rows[i]);
+    //         }
+    //     }
+    // }
 
-    const codeArrays: { [key: string]: any[] } = {};
+    // temp.sort((a: any, b: any) => a.sch_code.length - b.sch_code.length);
 
-    temp.forEach((obj: any) => {
-        const codePrefix = obj.sch_code.charAt(0);
-        if (!codeArrays[codePrefix]) {
-            codeArrays[codePrefix] = [];
-        }
-        codeArrays[codePrefix].push(obj);
-    });
+    // const codeArrays: { [key: string]: any[] } = {};
+
+    // temp.forEach((obj: any) => {
+    //     const codePrefix = obj.sch_code.charAt(0);
+    //     if (!codeArrays[codePrefix]) {
+    //         codeArrays[codePrefix] = [];
+    //     }
+    //     codeArrays[codePrefix].push(obj);
+    // });
 
 
-    function sortBySchCode(a: any, b: any): number {
-        if (a.sch_code.length !== b.sch_code.length) {
-            return a.sch_code.length - b.sch_code.length;
-        }
-        const lastCharA = Number(a.sch_code.slice(-1));
-        const lastCharB = Number(b.sch_code.slice(-1));
-        return lastCharA - lastCharB;
-    }
+    // function sortBySchCode(a: any, b: any): number {
+    //     if (a.sch_code.length !== b.sch_code.length) {
+    //         return a.sch_code.length - b.sch_code.length;
+    //     }
+    //     const lastCharA = Number(a.sch_code.slice(-1));
+    //     const lastCharB = Number(b.sch_code.slice(-1));
+    //     return lastCharA - lastCharB;
+    // }
 
-    // Sort each array within codeArrays
-    for (const key in codeArrays) {
-        codeArrays[key].sort(sortBySchCode);
-    }
+    // // Sort each array within codeArrays
+    // for (const key in codeArrays) {
+    //     codeArrays[key].sort(sortBySchCode);
+    // }
 
-    let dict : any = {}
+    let dict: any = {}
 
-    for (const key of Object.keys(codeArrays)) {
-        for (const item of codeArrays[key]) {
-            let b
-            b = item.sch_code
-            const l = b.length
+    // for (const key of Object.keys(codeArrays)) {
+    //     for (const item of codeArrays[key]) {
+    //         let b
+    //         b = item.sch_code
+    //         const l = b.length
 
-            for (let i = 2; i <= l; i += 2) {
-                const f: string = b.slice(0, l - i); // Reduce the size of f by 2 in each iteration
+    //         for (let i = 2; i <= l; i += 2) {
+    //             const f: string = b.slice(0, l - i); // Reduce the size of f by 2 in each iteration
 
-                const parent = await client.query(`select * from bsschedule where sch_code = $1`, [f])
-                
-                b = f
+    //             const parent = await client.query(`select * from bsschedule where sch_code = $1`, [f])
 
-                if (parent.rows.length > 0) {
-                    const key = parent.rows[0].sch_code
-                    const child = await client.query(`select * from bsschedule where sch_code = $1`, [item.sch_code])
-                    if(child.rows.length > 0){
-                        if (!(key in dict)) {
-                            // If the key does not exist, create a new array with the value
-                            dict[key] = [child.rows[0]];
+    //             b = f
+
+    //             if (parent.rows.length > 0) {
+    //                 const key = parent.rows[0].sch_code
+    //                 const child = await client.query(`select * from bsschedule where sch_code = $1`, [item.sch_code])
+    //                 if(child.rows.length > 0){
+    //                     if (!(key in dict)) {
+    //                         dict[key] = [child.rows[0]];
+    //                     }else{
+    //                         // Add the value to the array
+    //                         dict[key].push(child.rows[0]);
+    //                     }
+
+    //                 }
+
+    //             }
+    //         }
+    //     }
+
+    // }
+
+    for (const item of find.rows) {
+        let b = item.sch_code;
+        const l = b.length;
+
+        for (let i = 2; i <= l; i += 2) {
+            const f: string = b.slice(0, l - i); // Reduce the size of f by 2 in each iteration
+
+            const parent = await client.query(`select * from bsschedule where sch_code = $1`, [f]);
+            b = f;
+
+            if (parent.rows.length > 0) {
+                const key = parent.rows[0].sch_code;
+                const child = await client.query(`select * from bsschedule where sch_code = $1`, [item.sch_code]);
+
+                if (!(key in dict) && key.length === 3) {
+                    dict[key] = [child.rows[0]];
+                } else if (key.length === 3 && key in dict) {
+                    dict[key].push(child.rows[0]);
+                }
+                else if (child.rows.length > 0 && child.rows[0].sch_code.includes(key)) {
+                    for (let k in dict) {
+                        if (dict.hasOwnProperty(k)) {
+                            let values = dict[k];
+                            for (let i = 0; i < values.length; i++) {
+                                let newArray : any[] = []
+                                let index = values.findIndex((val : any) => val.sch_code === child.rows[0].sch_code && val.sch_code === child.rows[0].sch_code);
+                                // If the object exists, remove it from the 'values' array and add it to the 'newProperty' array
+                                if (index !== -1) {
+                                    values.splice(index, 1);
+                                    values[i].newProperty = newArray;
+                                }
+                            }
                         }
-                        // Add the value to the array
-                        dict[key].push(child.rows[0]);
                     }
-                    
+
                 }
             }
         }
-
     }
+
+
+
+
+
+
+
     const result = [];
     for (let key in dict) {
         if (dict.hasOwnProperty(key)) {
             result.push({ key: key, value: dict[key] });
         }
     }
+
     res.send(result)
+
+    // let firstKeyValues = result[0]['value'];
+
+    // result.forEach((item, index) => {
+    //     if (index !== 0) { // Skip the first item
+    //         firstKeyValues.forEach((value: any) => {
+    //             if (value['sch_code'] === item['key']) {
+    //                 value['matched_values'] = item['value'];
+    //             }
+    //         });
+    //     }
+    // });
+    // res.send(result)
 }
 
 export const getAccountDetailsById = async (req: Request, res: Response) => {
