@@ -1,41 +1,40 @@
 import { QueryResult } from 'pg';
-import { pool } from "../../newBackend/database"
+import { sql } from "../../newBackend/database"
+import { Request, Response } from 'express';
 
-export const executeInsertQuery = async (table : string , fieldsToInsert: string[], values: any[]): Promise<any[]> => {
+export const executeInsertQuery = async (table: string, fieldsToInsert: string[], values: any[], req: Request, res: Response): Promise<any[]> => {
     try {
         // Execute the query
-        const client = await pool.connect();
         const placeholders = fieldsToInsert.map((field, index) => `$${index + 1}`).join(', ');
         const fieldNames = fieldsToInsert.join(', ');
         const insertQuery = `
-        INSERT INTO ${table} (${fieldNames})
-        VALUES (${placeholders})
-        RETURNING *
+            INSERT INTO ${table} (${fieldNames})
+            VALUES (${placeholders})
+            RETURNING *
         `;
-        const result: QueryResult = await client.query(insertQuery, values);
-        return result.rows;
+        const result = await sql.unsafe(insertQuery, values);
+        return result;
     } catch (error) {
         // Handle errors
-        console.error('Error executing insert query:', error);
-        throw error;
+       
+        throw error
+    
     }
-}
+};
 
-
-export const executeUpdateQuery = async (fieldsToUpdate: string[], values: any[], conditionField: string, conditionValue: any): Promise<any[]> => {
+export const executeUpdateQuery = async (table : string, fieldsToUpdate: string[], values: any[], conditionField: string, conditionValue: any): Promise<any[]> => {
     try {
         // Generate SET clause dynamically based on fieldsToUpdate
         const setClause = fieldsToUpdate.map((field, index) => `${field} = $${index + 1}`).join(', ');
         // Define the update query
         const updateQuery: string = `
-        UPDATE accountmasterfile
+        UPDATE ${table}
         SET ${setClause}
         WHERE ${conditionField} = $${fieldsToUpdate.length + 1}
         RETURNING *`;
         // Execute the query
-        const client = await pool.connect();
-        const result: QueryResult = await client.query(updateQuery, [...values, conditionValue]);
-        return result.rows;
+        const result = await sql.unsafe(updateQuery, [...values, conditionValue]);
+        return result;
 
     } catch (error) {
         // Handle errors
@@ -44,8 +43,7 @@ export const executeUpdateQuery = async (fieldsToUpdate: string[], values: any[]
     }
 }
 
-export const executeUpdateBank = async (bankData: any[], account_id: string): Promise<any[]> => {
-    const client = await pool.connect();
+export const executeUpdateBank = async (bankData: any[], account_id: string, req: Request, res: Response): Promise<any[]> => {
     try {
         const results: any[] = [];
 
@@ -62,18 +60,18 @@ export const executeUpdateBank = async (bankData: any[], account_id: string): Pr
                 const updateValues = [...values, account_id, item.bank_id];
 
                 // Execute the update query
-                const { rows } = await client.query(updateQuery, updateValues);
+                const rows = await sql.unsafe(updateQuery, updateValues);
                 results.push(...rows);
             } else {
                 const fieldNames = Object.keys(item).join(', ');
                 const placeholders = Object.keys(item).map((_, index) => `$${index + 1}`).join(', ');
-                const values = Object.values(item);
+                const values : any = Object.values(item);
                 const insertQuery = `
                     INSERT INTO accountbanking (${fieldNames})
                     VALUES (${placeholders})
                     RETURNING *
                     `;
-                const { rows } = await client.query(insertQuery, values);
+                    const rows = await sql.unsafe(insertQuery, values);
                 results.push(...rows);
             }
         }
